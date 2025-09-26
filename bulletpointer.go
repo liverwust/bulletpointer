@@ -1,14 +1,97 @@
+// Apply sequencing logic to apply "layers" to SVG files, which then produce
+// PNG files for insertion to videos.
+
 package main
 
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/beevik/etree"
 	"gopkg.in/yaml.v3"
 )
 
+// Represent an individual SVG file which will be used to generate the PNG
+// files that represent layers on that image.
+type Image struct {
+	Filename string `yaml:"filename"`
+	Layers []*ImageLayer `yaml:"layers"`
+}
+
+// In the context of an individual SVG file, loop through and apply the
+// layering logic to produce individual "slides" for video insertion.
+func (image *Image) processImage(inDir string, outDir string) {
+	inFile := filepath.Join(inDir, image.Filename)
+	if fileStat, err := os.Stat(inFile); err == nil {
+		if !fileStat.Mode().IsRegular() {
+			log.Fatalf("Input file %s is not regular file\n", inFile)
+		}
+	} else {
+		log.Fatalf("Source file needs to exist: %s\n", inFile)
+	}
+
+	outPrefix := filepath.Base(inFile)
+	outExt := filepath.Ext(outPrefix)
+	outPrefix = outPrefix[0:(len(outPrefix) - len(outExt))]
+
+	if strings.ToLower(outExt) != ".svg" {
+		log.Fatalf("Expected .svg file but got %s\n", inFile)
+	}
+
+	doc := etree.NewDocument()
+	if err := doc.ReadFromFile(inFile); err != nil {
+		log.Fatalf("Error reading SVG XML file: %s\n", err.Error())
+	}
+
+	for _, layer := range image.Layers {
+		outBase := fmt.Sprintf("%s%s%s", outPrefix, layer.Suffix, outExt)
+		outFile := filepath.Join(outDir, outBase)
+		layer.processImageLayer(doc, outFile)
+	}
+}
+
+// Represent the toggles that are applied to a "layer" of an image, which will
+// then be exported as an individual instance of that image.
+type ImageLayer struct {
+	Suffix string `yaml:"suffix"`
+	HideIDs []string `yaml:"hide_ids,omitempty"`
+	ShowIDs []string `yaml:"show_ids,omitempty"`
+}
+
+// Within the context of a specific image layer, hide/show and then show/hide
+// the relevant image elements for that particular layer.
+func (layer *ImageLayer) processImageLayer(doc *etree.Document, outFile string) {
+	// Beforehand, apply the hide/show logic as dictated in the layer spec.
+	for _, id := range layer.HideIDs {
+		element := assertOneElementById(doc, id)
+		setHidden(element, true)
+	}
+	for _, id := range layer.ShowIDs {
+		element := assertOneElementById(doc, id)
+		setHidden(element, false)
+	}
+
+	// With all the attributes set correctly, write out the file.
+	if err := doc.WriteToFile(outFile); err != nil {
+		log.Fatalf("Problem writing to %s: %s\n", outFile, err.Error())
+	}
+
+	// Afterwards, apply the show/hide logic in reverse to reset the doc.
+	for _, id := range layer.HideIDs {
+		element := assertOneElementById(doc, id)
+		setHidden(element, false)
+	}
+	for _, id := range layer.ShowIDs {
+		element := assertOneElementById(doc, id)
+		setHidden(element, true)
+	}
+}
+
+// Find the singular element that has the given ID attribute. If there isn't
+// exactly one of them, then fail the entire program.
 func assertOneElementById(doc *etree.Document, id string) *etree.Element {
 	xpath := fmt.Sprintf("//[@id='%s']", id)
 	elements := doc.FindElements(xpath)
@@ -18,6 +101,8 @@ func assertOneElementById(doc *etree.Document, id string) *etree.Element {
 	return elements[0]
 }
 
+// Toggle the style: display: X sub-attribute on the element. If true, then set
+// display:none; if false, then set display:inline.
 func setHidden(element *etree.Element, hidden bool) {
 	attrValue := element.SelectAttrValue("style", "")
 	attrComponents := strings.Split(attrValue, ";")
@@ -44,17 +129,30 @@ func setHidden(element *etree.Element, hidden bool) {
 	element.CreateAttr("style", strings.Join(attrComponents, ";"))
 }
 
+// Main entry point for the program/script.
 func main() {
-	const file string = "/home/louis/OneDrive/Videos/Interview Take 3/titles/Question1AllBullets.svg"
-	var element *etree.Element
-
-	doc := etree.NewDocument()
-	if err := doc.ReadFromFile(file); err != nil {
-		panic(err)
+	if len(os.Args) != 3 {
+		log.Fatalln("Usage: bulletpointer /path/to/in.yaml /path/to/out/dir")
 	}
 
-	element = assertOneElementById(doc, "line1")
-	setHidden(element, true)
+	if dirStat, err := os.Stat(os.Args[2]); err == nil {
+		if !dirStat.IsDir() {
+			log.Fatalf("Destination should be a directory: %s\n", os.Args[2])
+		}
+	} else {
+		log.Fatalf("Destination dir needs to exist: %s\n", os.Args[2])
+	}
 
-	doc.WriteToFile("/tmp/out.svg")
+	var yamlImages []*Image
+	if yamlBytes, err := os.ReadFile(os.Args[1]); err == nil {
+		if err := yaml.Unmarshal(yamlBytes, &yamlImages); err != nil {
+			log.Fatalf("Problem parsing YAML: %s\n", err.Error())
+		}
+	} else {
+		log.Fatalf("Problem reading file: %s\n", err.Error())
+	}
+
+	for _, yamlImage := range yamlImages {
+		yamlImage.processImage(filepath.Dir(os.Args[1]), os.Args[2])
+	}
 }
