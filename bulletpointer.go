@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -61,10 +62,9 @@ type ImageLayer struct {
 	ShowIDs []string `yaml:"show_ids,omitempty"`
 }
 
-// Within the context of a specific image layer, hide/show and then show/hide
-// the relevant image elements for that particular layer.
+// Within the context of a specific image layer, hide/show the relevant image
+// elements for that particular layer.
 func (layer *ImageLayer) processImageLayer(doc *etree.Document, outFile string) {
-	// Beforehand, apply the hide/show logic as dictated in the layer spec.
 	for _, id := range layer.HideIDs {
 		element := assertOneElementById(doc, id)
 		setHidden(element, true)
@@ -74,19 +74,28 @@ func (layer *ImageLayer) processImageLayer(doc *etree.Document, outFile string) 
 		setHidden(element, false)
 	}
 
-	// With all the attributes set correctly, write out the file.
 	if err := doc.WriteToFile(outFile); err != nil {
 		log.Fatalf("Problem writing to %s: %s\n", outFile, err.Error())
 	}
 
-	// Afterwards, apply the show/hide logic in reverse to reset the doc.
-	for _, id := range layer.HideIDs {
-		element := assertOneElementById(doc, id)
-		setHidden(element, false)
+	// The input filename, and therefore the output filename, was already
+	// checked to end with .svg
+	outPng := outFile[0:(len(outFile) - 4)] + ".png"
+
+	cmd := exec.Cmd{
+		Path: "/usr/bin/flatpak",
+		Args: []string{
+			"flatpak",
+			"run",
+			"org.inkscape.Inkscape",
+			fmt.Sprintf("--export-filename=%s", outPng),
+			"--export-width=1280",
+			"--export-height=720",
+			outFile,
+		},
 	}
-	for _, id := range layer.ShowIDs {
-		element := assertOneElementById(doc, id)
-		setHidden(element, true)
+	if err := cmd.Run(); err != nil{
+		log.Fatalf("Could not convert SVG to PNG with Inkscape: %s\n", err.Error())
 	}
 }
 
