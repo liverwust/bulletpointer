@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/beevik/etree"
+	"gopkg.in/yaml.v3"
 )
 
 func assertOneElementById(doc *etree.Document, id string) *etree.Element {
