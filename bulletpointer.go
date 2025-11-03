@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/beevik/etree"
@@ -82,18 +83,39 @@ func (layer *ImageLayer) processImageLayer(doc *etree.Document, outFile string) 
 	// checked to end with .svg
 	outPng := outFile[0:(len(outFile) - 4)] + ".png"
 
-	cmd := exec.Cmd{
-		Path: "/usr/bin/flatpak",
-		Args: []string{
-			"flatpak",
-			"run",
-			"org.inkscape.Inkscape",
-			fmt.Sprintf("--export-filename=%s", outPng),
-			"--export-width=1280",
-			"--export-height=720",
-			outFile,
-		},
+	var cmd exec.Cmd
+
+	switch (runtime.GOOS) {
+	case "linux":
+		cmd = exec.Cmd{
+			Path: "/usr/bin/flatpak",
+			Args: []string{
+				"flatpak",
+				"run",
+				"org.inkscape.Inkscape",
+				fmt.Sprintf("--export-filename=%s", outPng),
+				"--export-width=1280",
+				"--export-height=720",
+				outFile,
+			},
+		}
+
+	case "windows":
+		cmd = exec.Cmd{
+			Path: `C:\Program Files\Inkscape\bin\inkscape.exe`,
+			Args: []string{
+				"inkscape.exe",
+				fmt.Sprintf("--export-filename=%s", outPng),
+				"--export-width=1280",
+				"--export-height=720",
+				outFile,
+			},
+		}
+
+	default:
+		panic(fmt.Sprintf("Unknown platform: %s", runtime.GOOS))
 	}
+
 	if err := cmd.Run(); err != nil{
 		log.Fatalf("Could not convert SVG to PNG with Inkscape: %s\n", err.Error())
 	}
