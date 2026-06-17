@@ -20,6 +20,8 @@ import (
 // files that represent layers on that image.
 type Image struct {
 	Filename string `yaml:"filename"`
+	Width int `yaml:"width"`
+	Height int `yaml:"height"`
 	Layers []*ImageLayer `yaml:"layers"`
 }
 
@@ -51,7 +53,7 @@ func (image *Image) processImage(inDir string, outDir string) {
 	for _, layer := range image.Layers {
 		outBase := fmt.Sprintf("%s%s%s", outPrefix, layer.Suffix, outExt)
 		outFile := filepath.Join(outDir, outBase)
-		layer.processImageLayer(doc, outFile)
+		layer.processImageLayer(doc, image.Width, image.Height, outFile)
 	}
 }
 
@@ -65,7 +67,7 @@ type ImageLayer struct {
 
 // Within the context of a specific image layer, hide/show the relevant image
 // elements for that particular layer.
-func (layer *ImageLayer) processImageLayer(doc *etree.Document, outFile string) {
+func (layer *ImageLayer) processImageLayer(doc *etree.Document, width int, height int, outFile string) {
 	for _, id := range layer.HideIDs {
 		element := assertOneElementById(doc, id)
 		setHidden(element, true)
@@ -94,8 +96,8 @@ func (layer *ImageLayer) processImageLayer(doc *etree.Document, outFile string) 
 				"run",
 				"org.inkscape.Inkscape",
 				fmt.Sprintf("--export-filename=%s", outPng),
-				"--export-width=1280",
-				"--export-height=720",
+				fmt.Sprintf("--export-width=%d", width),
+				fmt.Sprintf("--export-height=%d", height),
 				outFile,
 			},
 		}
@@ -106,8 +108,8 @@ func (layer *ImageLayer) processImageLayer(doc *etree.Document, outFile string) 
 			Args: []string{
 				"inkscape.exe",
 				fmt.Sprintf("--export-filename=%s", outPng),
-				"--export-width=1280",
-				"--export-height=720",
+				fmt.Sprintf("--export-width=%d", width),
+				fmt.Sprintf("--export-height=%d", height),
 				outFile,
 			},
 		}
@@ -124,7 +126,7 @@ func (layer *ImageLayer) processImageLayer(doc *etree.Document, outFile string) 
 // Find the singular element that has the given ID attribute. If there isn't
 // exactly one of them, then fail the entire program.
 func assertOneElementById(doc *etree.Document, id string) *etree.Element {
-	xpath := fmt.Sprintf("//[@id='%s']", id)
+	xpath := fmt.Sprintf("//[@inkscape:label='%s']", id)
 	elements := doc.FindElements(xpath)
 	if len(elements) != 1 {
 		log.Fatalf("Expected one #%s element; found %d\n", id, len(elements))
@@ -184,6 +186,9 @@ func main() {
 	}
 
 	for _, yamlImage := range yamlImages {
+		if yamlImage.Width == 0 || yamlImage.Height == 0 {
+			log.Fatalf("Provide width and height for image %s\n", yamlImage.Filename)
+		}
 		yamlImage.processImage(filepath.Dir(os.Args[1]), os.Args[2])
 	}
 }
